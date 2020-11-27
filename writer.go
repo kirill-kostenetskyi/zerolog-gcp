@@ -8,11 +8,13 @@ import (
 	"github.com/rs/zerolog"
 )
 
-type cloudLoggingWriter struct {
+type CloudLoggingWriter struct {
 	ctx         context.Context
 	wroteOnce   bool
 	logger      *logging.Logger
 	severityMap map[zerolog.Level]logging.Severity
+
+	OnError func(err error)
 
 	zerolog.LevelWriter
 }
@@ -30,7 +32,7 @@ var DefaultSeverityMap = map[zerolog.Level]logging.Severity{
 // secretly, we keep tabs of all loggers
 var loggersWeMade = make([]*logging.Logger, 0, 1)
 
-func (c *cloudLoggingWriter) Write(p []byte) (int, error) {
+func (c *CloudLoggingWriter) Write(p []byte) (int, error) {
 	// writing to stackdriver without levels? o-okay...
 	entry := logging.Entry{Payload: json.RawMessage(p)}
 	if !c.wroteOnce {
@@ -45,7 +47,7 @@ func (c *cloudLoggingWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func (c *cloudLoggingWriter) WriteLevel(level zerolog.Level, payload []byte) (int, error) {
+func (c *CloudLoggingWriter) WriteLevel(level zerolog.Level, payload []byte) (int, error) {
 	entry := logging.Entry{
 		Severity: c.severityMap[level],
 		Payload:  json.RawMessage(payload),
@@ -75,10 +77,10 @@ type CloudLoggingOptions struct {
 }
 
 // NewCloudLoggingWriter creates a LevelWriter that logs only to GCP Cloud Logging using non-blocking calls.
-func NewCloudLoggingWriter(ctx context.Context, projectID, logID string, opts CloudLoggingOptions) (writer zerolog.LevelWriter, err error) {
+func NewCloudLoggingWriter(ctx context.Context, projectID, logID string, opts CloudLoggingOptions) (writer *CloudLoggingWriter, err error) {
 	logger := opts.Logger
+	var client *logging.Client
 	if opts.Logger == nil {
-		var client *logging.Client
 		client, err = logging.NewClient(ctx, projectID)
 		if err != nil {
 			return
@@ -90,10 +92,13 @@ func NewCloudLoggingWriter(ctx context.Context, projectID, logID string, opts Cl
 	if severityMap == nil {
 		severityMap = DefaultSeverityMap
 	}
-	writer = &cloudLoggingWriter{
+	writer = &CloudLoggingWriter{
 		ctx:         ctx,
 		logger:      logger,
 		severityMap: severityMap,
+	}
+	client.OnError = func(err error) {
+		writer.OnError(err)
 	}
 	return
 }
