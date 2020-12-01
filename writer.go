@@ -1,22 +1,24 @@
 package zlg
 
 import (
+	"cloud.google.com/go/logging"
 	"context"
 	"encoding/json"
-
-	"cloud.google.com/go/logging"
 	"github.com/rs/zerolog"
+	"io"
 )
 
 type CloudLoggingWriter struct {
 	ctx         context.Context
 	wroteOnce   bool
 	logger      *logging.Logger
+	client      *logging.Client
 	severityMap map[zerolog.Level]logging.Severity
 
 	OnError func(err error)
 
 	zerolog.LevelWriter
+	io.Closer
 }
 
 // DefaultSeverityMap contains the default zerolog.Level -> logging.Severity mappings.
@@ -92,15 +94,21 @@ func NewCloudLoggingWriter(ctx context.Context, projectID, logID string, opts Cl
 	if severityMap == nil {
 		severityMap = DefaultSeverityMap
 	}
+
 	writer = &CloudLoggingWriter{
 		ctx:         ctx,
 		logger:      logger,
+		client:      client,
 		severityMap: severityMap,
 	}
 	client.OnError = func(err error) {
 		writer.OnError(err)
 	}
 	return
+}
+
+func (c *CloudLoggingWriter) Close() error {
+	return c.client.Close()
 }
 
 // Flush blocks while flushing all loggers this module created.
